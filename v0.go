@@ -1,12 +1,12 @@
-package reverseProxy
+package main
 
 import (
+	"flag"
 	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"os"
 	"strconv"
 )
 
@@ -15,29 +15,15 @@ func main() {
 	var originIP net.IP
 	var port int
 
-	for i, arg := range os.Args {
-		if i == 0 {
-			continue
-		}
-		if arg == "--origin-ip" {
-			if len(os.Args) < i+2 {
-				log.Fatalln("error: --origin-ip passed without value!")
-			}
-			originIP = net.ParseIP(os.Args[i+1])
-			if originIP == nil || originIP.To4() == nil {
-				log.Fatalln("error: --origin-ip passed with invalid value!")
-			}
-		}
-		if arg == "--port" {
-			if len(os.Args) < i+2 {
-				log.Fatalln("error: --port passed without value!")
-			}
-			var err error
-			port, err = strconv.Atoi(os.Args[i+1])
-			if err != nil {
-				log.Fatalln("error: --port passed with invalid value!")
-			}
-		}
+	var originIPString = flag.String("origin-ip", "127.0.0.1", "origin ip")
+	var portPtr = flag.Int("port", 8080, "http port")
+	if portPtr == nil {
+		log.Fatal("invalid port")
+	}
+	port = *portPtr
+	originIP = net.ParseIP(*originIPString)
+	if originIP == nil || originIP.To4() == nil {
+		log.Fatal("invalid origin ip")
 	}
 
 	originStr, err := url.Parse("http://" + originIP.String() + ":" + strconv.Itoa(port))
