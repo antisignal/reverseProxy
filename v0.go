@@ -3,26 +3,29 @@ package reverseProxy
 import (
 	"log"
 	"net"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"strconv"
 )
 
 func main() {
 
-	var ip net.IP
+	var originIP net.IP
 	var port int
 
 	for i, arg := range os.Args {
 		if i == 0 {
 			continue
 		}
-		if arg == "--dest" {
+		if arg == "--origin-ip" {
 			if len(os.Args) < i+2 {
-				log.Fatalln("error: --dest passed without value!")
+				log.Fatalln("error: --origin-ip passed without value!")
 			}
-			ip = net.ParseIP(os.Args[i+1])
-			if ip == nil || ip.To4() == nil {
-				log.Fatalln("error: --dest passed with invalid value!")
+			originIP = net.ParseIP(os.Args[i+1])
+			if originIP == nil || originIP.To4() == nil {
+				log.Fatalln("error: --origin-ip passed with invalid value!")
 			}
 		}
 		if arg == "--port" {
@@ -37,16 +40,14 @@ func main() {
 		}
 	}
 
-	var portStr string = ":" + strconv.Itoa(port)
-
-	listener, err := net.Listen("tcp", portStr)
+	originStr, err := url.Parse("http://" + originIP.String() + ":" + strconv.Itoa(port))
 	if err != nil {
-		log.Fatalln("failed to listen: ", err)
+		log.Fatalln("failed to parse origin URL:", err)
 	}
-	defer func() {
-		err := listener.Close()
-		if err != nil {
-			log.Fatalln("failed to close listener: ", err)
-		}
-	}()
+
+	proxy := httputil.NewSingleHostReverseProxy(originStr)
+
+	http.Handle("/", proxy)
+	log.Println("Listening on :" + strconv.Itoa(port))
+	log.Fatal(http.ListenAndServe(":"+strconv.Itoa(port), nil))
 }
