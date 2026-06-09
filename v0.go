@@ -8,11 +8,12 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strconv"
+	"sync/atomic"
 )
 
-func webServer(originURL *url.URL) {
-	err := http.ListenAndServe(":"+originURL.Port(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, err := w.Write([]byte("hello! you're connected on port " + originURL.Port() + " :D"))
+func webServer(listener net.Listener) {
+	err := http.Serve(listener, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, err := w.Write([]byte("hello! you're connected on addr " + listener.Addr().String() + " :D"))
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -26,40 +27,61 @@ func main() {
 
 	var originIP net.IP
 	var listenPort int
-	var originPort int
+	var originPortsStart int
+	var numBackends int
 
 	var originIPString = flag.String("origin-ip", "127.0.0.1", "origin ip")
 	var listenPortPtr = flag.Int("listen-port", 8080, "http listen port")
-	var originPortPtr = flag.Int("origin-port", 9090, "http origin port")
+	var originPortsStartPtr = flag.Int("origin-ports-start", 9090, "http origin port")
+	var numBackendsPtr = flag.Int("num-backends", 3, "number of backends")
+
 	flag.Parse()
-	if listenPortPtr == nil {
-		log.Fatal("invalid port")
-	}
 	listenPort = *listenPortPtr
-	if originPortPtr == nil {
-		log.Fatal("invalid port")
-	}
-	originPort = *originPortPtr
+	originPortsStart = *originPortsStartPtr
+	numBackends = *numBackendsPtr
 	originIP = net.ParseIP(*originIPString)
 	if originIP == nil || originIP.To4() == nil {
 		log.Fatal("invalid origin ip")
 	}
+	var originURLs = []*url.URL{}
+	var currentPort = originPortsStart
+	var numBackendsAssigned = 0
+	for numBackendsAssigned < numBackends {
+		var originHostPortPair = originIP.String() + ":" + strconv.Itoa(currentPort)
+		originURL, err := url.Parse("http://" + originHostPortPair)
+		if err != nil {
+			log.Fatal(err)
+		}
+		listener, err := net.Listen("tcp", originHostPortPair)
+		if err != nil {
+			log.Println(err)
+			currentPort++
+			if currentPort > 65535 {
+				log.Fatal("ports above chosen start port exhausted!")
+			}
+			continue
+		}
+		originURLs = append(originURLs, originURL)
+		numBackendsAssigned++
+		currentPort++
+		go webServer(listener)
 
-	originURL, err := url.Parse("http://" + originIP.String() + ":" + strconv.Itoa(originPort))
-	if err != nil {
-		log.Fatalln("failed to parse origin URL:", err)
 	}
-
-	go webServer(originURL)
-	go reverseProxy(originURL, listenPort)
+	go reverseProxy(originURLs, listenPort)
 	<-make(chan int)
 }
 
-func reverseProxy(originURL *url.URL, listenPort int) {
+func reverseProxy(originURLs []*url.URL, listenPort int) {
+	var roundRobinChoice uint64 = 0
+	proxy := httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			roundRobinChoice++
+			idx := atomic.AddUint64(&roundRobinChoice, 1) - 1
+			pr.SetURL(originURLs[idx%uint64(len(originURLs))])
+		},
+	}
 
-	proxy := httputil.NewSingleHostReverseProxy(originURL)
-
-	http.Handle("/", proxy)
+	http.Handle("/", &proxy)
 	log.Println("Listening on :" + strconv.Itoa(listenPort))
 	log.Fatal(http.ListenAndServe(":"+strconv.Itoa(listenPort), nil))
 }
