@@ -28,6 +28,12 @@ func webServer(listener net.Listener) {
 
 func main() {
 
+	var debug = struct {
+		test502BadGateway bool
+	}{
+		test502BadGateway: true,
+	}
+
 	var originIP net.IP
 	var listenPort int
 	var originPortsStart int
@@ -67,6 +73,14 @@ func main() {
 		originURLs = append(originURLs, originURL)
 		numBackendsAssigned++
 		currentPort++
+		if debug.test502BadGateway {
+			var dummyURL *url.URL
+			dummyURL, err = url.Parse("http://127.0.0.1:8081")
+			if err != nil {
+				log.Fatal(err)
+			}
+			originURLs[numBackendsAssigned-1] = dummyURL
+		}
 		go webServer(listener)
 
 	}
@@ -91,7 +105,7 @@ func reverseProxy(originURLs []*url.URL, listenPort int, logLock *sync.Mutex) {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		loggingWriter := makeWriterLogging(w)
-		proxy.ServeHTTP(*loggingWriter, r)
+		proxy.ServeHTTP(loggingWriter, r)
 		latency := time.Since(start)
 		var logStrings = []string{}
 		logStrings = append(logStrings, "timestamp: "+time.Now().Format("2006-01-02 15:04:05"))
@@ -118,7 +132,14 @@ func makeWriterLogging(w http.ResponseWriter) *LoggingWriter {
 	return &LoggingWriter{w, http.StatusOK}
 }
 
-func (lw LoggingWriter) WriteHeader(code int) {
+func (lw *LoggingWriter) WriteHeader(code int) {
 	lw.code = code
 	lw.ResponseWriter.WriteHeader(code)
+}
+
+func (lw *LoggingWriter) Write(b []byte) (int, error) {
+	if lw.code == 0 {
+		lw.code = http.StatusOK
+	}
+	return lw.ResponseWriter.Write(b)
 }
