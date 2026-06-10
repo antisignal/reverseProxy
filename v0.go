@@ -9,7 +9,6 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -84,12 +83,11 @@ func main() {
 		go webServer(listener)
 
 	}
-	var logLock = sync.Mutex{}
-	go reverseProxy(originURLs, listenPort, &logLock)
+	go reverseProxy(originURLs, listenPort)
 	<-make(chan int)
 }
 
-func reverseProxy(originURLs []*url.URL, listenPort int, logLock *sync.Mutex) {
+func reverseProxy(originURLs []*url.URL, listenPort int) {
 	var roundRobinChoice uint64 = 0
 	log.Print("starting reverse proxy\n")
 	proxy := httputil.ReverseProxy{
