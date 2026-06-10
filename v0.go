@@ -97,6 +97,7 @@ func reverseProxy(originURLs []*url.URL, listenPort int, logLock *sync.Mutex) {
 		logStrings = append(logStrings, "timestamp: "+time.Now().Format("2006-01-02 15:04:05"))
 		logStrings = append(logStrings, "sending addr: "+r.RemoteAddr)
 		logStrings = append(logStrings, "destination host: "+originURLs[roundRobinChoice%uint64(len(originURLs))].String())
+		logStrings = append(logStrings, "method: "+r.Method)
 		logStrings = append(logStrings, "path: "+r.URL.Path)
 		logStrings = append(logStrings, "latency: "+strconv.Itoa(int(latency)))
 		logStrings = append(logStrings, "status: "+strconv.Itoa((*loggingWriter).code))
