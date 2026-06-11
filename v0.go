@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -35,8 +37,10 @@ func main() {
 
 	var debug = struct {
 		test502BadGateway bool
+		testDeadBackends  bool
 	}{
 		test502BadGateway: false,
+		testDeadBackends:  true,
 	}
 
 	var originIP net.IP
@@ -92,15 +96,16 @@ func main() {
 		go webServer(listener)
 
 	}
-	go reverseProxy(originBackends, listenPort)
-	<-make(chan int)
+	logLock := sync.Mutex{}
+	go reverseProxy(originBackends, listenPort, &logLock)
+	healthChecker(originBackends, &logLock)
 }
 
 type contextKey string
 
 const chosenBackendKey contextKey = "chosenBackend"
 
-func reverseProxy(originBackends []Backend, listenPort int) {
+func reverseProxy(originBackends []Backend, listenPort int, logLock *sync.Mutex) {
 	var roundRobinChoice uint64 = 0
 	log.Print("starting reverse proxy\n")
 	proxy := httputil.ReverseProxy{
@@ -130,12 +135,52 @@ func reverseProxy(originBackends []Backend, listenPort int) {
 		logStrings = append(logStrings, "path: "+r.URL.Path)
 		logStrings = append(logStrings, "latency: "+strconv.Itoa(int(latency)))
 		logStrings = append(logStrings, "status: "+strconv.Itoa((*loggingWriter).code))
+		logLock.Lock()
 		for _, s := range logStrings {
 			log.Println(s)
 		}
+		logLock.Unlock()
 	})
 	log.Println("Listening on :" + strconv.Itoa(listenPort))
 	log.Fatal(http.ListenAndServe(":"+strconv.Itoa(listenPort), nil))
+}
+
+func healthChecker(backends []Backend, logLock *sync.Mutex) {
+	for {
+		var wg sync.WaitGroup
+		for i, backend := range backends {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				client := http.Client{
+					Timeout: time.Second * 2,
+				}
+				resp, err := client.Get(backend.url.String())
+				if err != nil {
+					log.Fatal(err)
+				}
+				logLock.Lock()
+				if os.IsTimeout(err) || resp.StatusCode != http.StatusOK {
+					if backends[i].alive == true {
+						log.Println("[healthChecker] backend " + backends[i].url.String() + " is dead")
+						backends[i].alive = false
+					}
+				} else {
+					if backends[i].alive == false {
+						backends[i].alive = true
+						log.Println("[healthChecker] backend " + backends[i].url.String() + " is alive")
+					}
+				}
+				logLock.Unlock()
+				err = resp.Body.Close()
+				if err != nil {
+					log.Fatal(err)
+				}
+			}()
+		}
+		wg.Wait()
+		time.Sleep(5 * time.Second)
+	}
 }
 
 type LoggingWriter struct {
