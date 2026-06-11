@@ -26,6 +26,11 @@ func webServer(listener net.Listener) {
 	}
 }
 
+type Backend struct {
+	alive bool
+	url   *url.URL
+}
+
 func main() {
 
 	var debug = struct {
@@ -52,7 +57,7 @@ func main() {
 	if originIP == nil || originIP.To4() == nil {
 		log.Fatal("invalid origin ip")
 	}
-	var originURLs = []*url.URL{}
+	var originBackends = []Backend{}
 	var currentPort = originPortsStart
 	var numBackendsAssigned = 0
 	for numBackendsAssigned < numBackends {
@@ -70,7 +75,10 @@ func main() {
 			}
 			continue
 		}
-		originURLs = append(originURLs, originURL)
+		originBackends = append(originBackends, Backend{
+			alive: true,
+			url:   originURL,
+		})
 		numBackendsAssigned++
 		currentPort++
 		if debug.test502BadGateway {
@@ -79,12 +87,12 @@ func main() {
 			if err != nil {
 				log.Fatal(err)
 			}
-			originURLs[numBackendsAssigned-1] = dummyURL
+			originBackends[numBackendsAssigned-1].url = dummyURL
 		}
 		go webServer(listener)
 
 	}
-	go reverseProxy(originURLs, listenPort)
+	go reverseProxy(originBackends, listenPort)
 	<-make(chan int)
 }
 
@@ -92,17 +100,17 @@ type contextKey string
 
 const chosenBackendKey contextKey = "chosenBackend"
 
-func reverseProxy(originURLs []*url.URL, listenPort int) {
+func reverseProxy(originBackends []Backend, listenPort int) {
 	var roundRobinChoice uint64 = 0
 	log.Print("starting reverse proxy\n")
 	proxy := httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			idx := atomic.AddUint64(&roundRobinChoice, 1)
 			fmt.Println("roundRobinChoice:", roundRobinChoice)
-			idx = idx % uint64(len(originURLs))
+			idx = idx % uint64(len(originBackends))
 			fmt.Println("idx:", idx)
-			var chosen = originURLs[idx]
-			pr.SetURL(chosen)
+			var chosen = originBackends[idx]
+			pr.SetURL(chosen.url)
 			*pr.In = *pr.In.WithContext(
 				context.WithValue(pr.In.Context(), chosenBackendKey, chosen))
 		},
@@ -112,12 +120,12 @@ func reverseProxy(originURLs []*url.URL, listenPort int) {
 		start := time.Now()
 		loggingWriter := makeWriterLogging(w)
 		proxy.ServeHTTP(loggingWriter, r)
-		var chosenBackend = r.Context().Value(chosenBackendKey).(*url.URL)
+		var chosenBackend = r.Context().Value(chosenBackendKey).(Backend)
 		latency := time.Since(start)
 		var logStrings = []string{}
 		logStrings = append(logStrings, "timestamp: "+time.Now().Format("2006-01-02 15:04:05"))
 		logStrings = append(logStrings, "sending addr: "+r.RemoteAddr)
-		logStrings = append(logStrings, "destination host: "+chosenBackend.String())
+		logStrings = append(logStrings, "destination host: "+chosenBackend.url.String())
 		logStrings = append(logStrings, "method: "+r.Method)
 		logStrings = append(logStrings, "path: "+r.URL.Path)
 		logStrings = append(logStrings, "latency: "+strconv.Itoa(int(latency)))
