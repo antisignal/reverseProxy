@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -30,7 +31,7 @@ func main() {
 	var debug = struct {
 		test502BadGateway bool
 	}{
-		test502BadGateway: true,
+		test502BadGateway: false,
 	}
 
 	var originIP net.IP
@@ -87,6 +88,10 @@ func main() {
 	<-make(chan int)
 }
 
+type contextKey string
+
+const chosenBackendKey contextKey = "chosenBackend"
+
 func reverseProxy(originURLs []*url.URL, listenPort int) {
 	var roundRobinChoice uint64 = 0
 	log.Print("starting reverse proxy\n")
@@ -96,7 +101,10 @@ func reverseProxy(originURLs []*url.URL, listenPort int) {
 			fmt.Println("roundRobinChoice:", roundRobinChoice)
 			idx = idx % uint64(len(originURLs))
 			fmt.Println("idx:", idx)
-			pr.SetURL(originURLs[idx])
+			var chosen = originURLs[idx]
+			pr.SetURL(chosen)
+			*pr.In = *pr.In.WithContext(
+				context.WithValue(pr.In.Context(), chosenBackendKey, chosen))
 		},
 	}
 
@@ -104,11 +112,12 @@ func reverseProxy(originURLs []*url.URL, listenPort int) {
 		start := time.Now()
 		loggingWriter := makeWriterLogging(w)
 		proxy.ServeHTTP(loggingWriter, r)
+		var chosenBackend = r.Context().Value(chosenBackendKey).(*url.URL)
 		latency := time.Since(start)
 		var logStrings = []string{}
 		logStrings = append(logStrings, "timestamp: "+time.Now().Format("2006-01-02 15:04:05"))
 		logStrings = append(logStrings, "sending addr: "+r.RemoteAddr)
-		logStrings = append(logStrings, "destination host: "+originURLs[roundRobinChoice%uint64(len(originURLs))].String())
+		logStrings = append(logStrings, "destination host: "+chosenBackend.String())
 		logStrings = append(logStrings, "method: "+r.Method)
 		logStrings = append(logStrings, "path: "+r.URL.Path)
 		logStrings = append(logStrings, "latency: "+strconv.Itoa(int(latency)))
