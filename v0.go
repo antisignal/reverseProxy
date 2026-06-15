@@ -117,9 +117,10 @@ func main() {
 			}
 			continue
 		}
-		originBackends = append(originBackends, Backend{
-			alive: true,
-			url:   originURL,
+		loadBalancer.backends = append(loadBalancer.backends, Backend{
+			alive:    true,
+			url:      originURL,
+			listener: &listener,
 		})
 		numBackendsAssigned++
 		currentPort++
@@ -129,7 +130,7 @@ func main() {
 			if err != nil {
 				log.Fatal(err)
 			}
-			originBackends[numBackendsAssigned-1].url = dummyURL
+			loadBalancer.backends[numBackendsAssigned-1].url = dummyURL
 		}
 		go webServer(listener)
 
@@ -143,9 +144,8 @@ type contextKey string
 
 const chosenBackendKey contextKey = "chosenBackend"
 
-func reverseProxy(originBackends []Backend, listenPort int, logLock *sync.Mutex) {
-	var roundRobinChoice uint64 = 0
-	log.Print("starting reverse proxy\n")
+func reverseProxy(loadBalancer *LoadBalancer, listenPort int, logLock *sync.Mutex) {
+	log.Print("[reverseProxy] starting reverse proxy\n")
 	proxy := httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			idx := atomic.AddUint64(&roundRobinChoice, 1)
@@ -160,10 +160,17 @@ func reverseProxy(originBackends []Backend, listenPort int, logLock *sync.Mutex)
 	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		var chosenBackend, err = loadBalancer.getNextBackend()
+		if err != nil {
+			log.Println("[reverseProxy] all backends exhausted, returning 503 Service Unavailable")
+			http.Error(w, "503 Service Unavailable", 503)
+			return
+		}
+		*r = *r.WithContext(
+			context.WithValue(r.Context(), chosenBackendKey, chosenBackend))
 		start := time.Now()
 		loggingWriter := makeWriterLogging(w)
 		proxy.ServeHTTP(loggingWriter, r)
-		var chosenBackend = r.Context().Value(chosenBackendKey).(Backend)
 		latency := time.Since(start)
 		var logStrings = []string{}
 		logStrings = append(logStrings, "timestamp: "+time.Now().Format("2006-01-02 15:04:05"))
