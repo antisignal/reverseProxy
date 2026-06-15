@@ -113,7 +113,7 @@ func main() {
 			log.Println(err)
 			currentPort++
 			if currentPort > 65535 {
-				log.Fatal("ports above chosen start port exhausted!")
+				log.Fatal("[main] ports above chosen start port exhausted!")
 			}
 			continue
 		}
