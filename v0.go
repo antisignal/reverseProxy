@@ -16,6 +16,22 @@ import (
 	"time"
 )
 
+type DebugInfo struct {
+	test502BadGateway bool
+	testDeadBackends  bool
+	verbose           bool
+}
+
+var debugInfo = DebugInfo{
+	test502BadGateway: false,
+	testDeadBackends:  true,
+	verbose:           true,
+}
+
+func getDebugInfo() DebugInfo {
+	return debugInfo
+}
+
 func webServer(listener net.Listener) {
 	err := http.Serve(listener, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, err := w.Write([]byte("hello! you're connected on addr " + listener.Addr().String() + " :D"))
