@@ -48,19 +48,34 @@ func webServer(listener net.Listener) {
 }
 
 type Backend struct {
-	alive bool
-	url   *url.URL
+	alive    bool
+	url      *url.URL
+	listener *net.Listener
+}
+
+type LoadBalancer struct {
+	backends    []Backend
+	nextBackend int
+	mutex       sync.Mutex
+}
+
+func (l *LoadBalancer) getNextBackend() (*Backend, error) {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	var delta = 1
+	for i := 0; i < len(l.backends); i++ {
+		var iWrapping = (l.nextBackend + i) % len(l.backends)
+		if !l.backends[iWrapping].alive {
+			delta++
+		} else {
+			break
+		}
+	}
+	l.nextBackend = (l.nextBackend + delta) % len(l.backends)
+	return &l.backends[l.nextBackend], nil
 }
 
 func main() {
-
-	var debug = struct {
-		test502BadGateway bool
-		testDeadBackends  bool
-	}{
-		test502BadGateway: false,
-		testDeadBackends:  true,
-	}
 
 	var originIP net.IP
 	var listenPort int
