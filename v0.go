@@ -95,7 +95,11 @@ func main() {
 	if originIP == nil || originIP.To4() == nil {
 		log.Fatal("invalid origin ip")
 	}
-	var originBackends = []Backend{}
+	var loadBalancer = LoadBalancer{
+		backends:    []Backend{},
+		nextBackend: 0,
+		mutex:       sync.Mutex{},
+	}
 	var currentPort = originPortsStart
 	var numBackendsAssigned = 0
 	for numBackendsAssigned < numBackends {
