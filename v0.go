@@ -136,8 +136,25 @@ func main() {
 
 	}
 	logLock := sync.Mutex{}
-	go reverseProxy(originBackends, listenPort, &logLock)
-	healthChecker(originBackends, &logLock)
+	go reverseProxy(&loadBalancer, listenPort, &logLock)
+	if debugInfo.testDeadBackends {
+		go func() {
+			for {
+				time.Sleep(time.Duration(rand.Intn(20)+5) * time.Second)
+
+				idx := rand.Intn(len(loadBalancer.backends))
+
+				log.Printf("[chaos] killing backend %s", loadBalancer.backends[idx].url)
+				err := (*(loadBalancer.backends[idx].listener)).Close()
+				if err != nil {
+					log.Println("[chaos] error closing listener (expected):", err)
+				} else {
+					log.Printf("[chaos] killed %s", loadBalancer.backends[idx].url)
+				}
+			}
+		}()
+	}
+	healthChecker(loadBalancer.backends, &logLock)
 }
 
 type contextKey string
