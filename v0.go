@@ -124,7 +124,7 @@ func main() {
 		})
 		numBackendsAssigned++
 		currentPort++
-		if debug.test502BadGateway {
+		if getDebugInfo().test502BadGateway {
 			var dummyURL *url.URL
 			dummyURL, err = url.Parse("http://127.0.0.1:8081")
 			if err != nil {
