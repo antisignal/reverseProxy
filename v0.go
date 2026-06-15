@@ -165,14 +165,8 @@ func reverseProxy(loadBalancer *LoadBalancer, listenPort int, logLock *sync.Mute
 	log.Print("[reverseProxy] starting reverse proxy\n")
 	proxy := httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
-			idx := atomic.AddUint64(&roundRobinChoice, 1)
-			fmt.Println("roundRobinChoice:", roundRobinChoice)
-			idx = idx % uint64(len(originBackends))
-			fmt.Println("idx:", idx)
-			var chosen = originBackends[idx]
+			var chosen = pr.In.Context().Value(chosenBackendKey).(*Backend)
 			pr.SetURL(chosen.url)
-			*pr.In = *pr.In.WithContext(
-				context.WithValue(pr.In.Context(), chosenBackendKey, chosen))
 		},
 	}
 
@@ -218,11 +212,18 @@ func healthChecker(backends []Backend, logLock *sync.Mutex) {
 					Timeout: time.Second * 2,
 				}
 				resp, err := client.Get(backend.url.String())
+				var connectionRefused = false
 				if err != nil {
-					log.Fatal(err)
+					if !os.IsTimeout(err) {
+						if strings.Contains(err.Error(), "connect: connection refused") {
+							connectionRefused = true
+						} else {
+							log.Fatal(err)
+						}
+					}
 				}
 				logLock.Lock()
-				if os.IsTimeout(err) || resp.StatusCode != http.StatusOK {
+				if os.IsTimeout(err) || connectionRefused || resp.StatusCode != http.StatusOK {
 					if backends[i].alive == true {
 						log.Println("[healthChecker] backend " + backends[i].url.String() + " is dead")
 						backends[i].alive = false
@@ -234,9 +235,11 @@ func healthChecker(backends []Backend, logLock *sync.Mutex) {
 					}
 				}
 				logLock.Unlock()
-				err = resp.Body.Close()
-				if err != nil {
-					log.Fatal(err)
+				if resp != nil {
+					err = resp.Body.Close()
+					if err != nil {
+						log.Fatal(err)
+					}
 				}
 			}()
 		}
