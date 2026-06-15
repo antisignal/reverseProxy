@@ -33,6 +33,9 @@ func getDebugInfo() DebugInfo {
 }
 
 func webServer(listener net.Listener) {
+	if debugInfo.verbose {
+		log.Println("[webServer] serving with listener", listener.Addr())
+	}
 	err := http.Serve(listener, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, err := w.Write([]byte("hello! you're connected on addr " + listener.Addr().String() + " :D"))
 		if err != nil {
