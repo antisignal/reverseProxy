@@ -43,7 +43,7 @@ func webServer(listener net.Listener) {
 		}
 	}))
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("[webServer] backend stopped: %v", err)
 	}
 }
 
