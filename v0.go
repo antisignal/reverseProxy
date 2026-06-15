@@ -3,16 +3,16 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
