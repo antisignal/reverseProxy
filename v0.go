@@ -85,7 +85,7 @@ func main() {
 	var originIPString = flag.String("origin-ip", "127.0.0.1", "origin ip")
 	var listenPortPtr = flag.Int("listen-port", 8080, "http listen port")
 	var originPortsStartPtr = flag.Int("origin-ports-start", 9090, "http origin port")
-	var numBackendsPtr = flag.Int("num-backends", 3, "number of backends")
+	var numBackendsPtr = flag.Int("num-backends", 10, "number of backends")
 
 	flag.Parse()
 	listenPort = *listenPortPtr
