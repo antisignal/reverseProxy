@@ -184,6 +184,8 @@ func reverseProxy(loadBalancer *LoadBalancer, listenPort int, logLock *sync.Mute
 		proxy.ServeHTTP(loggingWriter, r)
 		latency := time.Since(start)
 		var logStrings = []string{}
+		logStrings = append(logStrings, "[reverseProxy] handled request")
+		logStrings = append(logStrings, "==========")
 		logStrings = append(logStrings, "timestamp: "+time.Now().Format("2006-01-02 15:04:05"))
 		logStrings = append(logStrings, "sending addr: "+r.RemoteAddr)
 		logStrings = append(logStrings, "destination host: "+chosenBackend.url.String())
@@ -191,13 +193,14 @@ func reverseProxy(loadBalancer *LoadBalancer, listenPort int, logLock *sync.Mute
 		logStrings = append(logStrings, "path: "+r.URL.Path)
 		logStrings = append(logStrings, "latency: "+strconv.Itoa(int(latency)))
 		logStrings = append(logStrings, "status: "+strconv.Itoa((*loggingWriter).code))
+		logStrings = append(logStrings, "==========")
 		logLock.Lock()
 		for _, s := range logStrings {
 			log.Println(s)
 		}
 		logLock.Unlock()
 	})
-	log.Println("Listening on :" + strconv.Itoa(listenPort))
+	log.Println("[reverseProxy] Listening on :" + strconv.Itoa(listenPort))
 	log.Fatal(http.ListenAndServe(":"+strconv.Itoa(listenPort), nil))
 }
 
