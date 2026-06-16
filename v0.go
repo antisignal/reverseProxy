@@ -72,7 +72,7 @@ func (l *LoadBalancer) getNextBackend() (*Backend, error) {
 		var iWrapping = (l.nextBackend + delta) % len(l.backends)
 		if !l.backends[iWrapping].alive {
 			if debugInfo.verbose {
-				log.Printf("backend %d is dead; incrementing delta\n", iWrapping)
+				log.Printf("[loadBalancer] backend %d is dead; incrementing delta\n", iWrapping)
 			}
 			delta++
 		} else {
