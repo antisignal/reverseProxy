@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"math/rand"
@@ -77,6 +78,9 @@ func (l *LoadBalancer) getNextBackend() (*Backend, error) {
 			break
 		}
 	}
+	if delta == len(l.backends) {
+		return nil, errors.New("no available backend")
+	}
 	l.nextBackend = (l.nextBackend + delta) % len(l.backends)
 	if debugInfo.verbose {
 		log.Println("[loadBalancer] backend selected: " + strconv.Itoa(l.nextBackend))
@@ -149,9 +153,22 @@ func main() {
 	if debugInfo.testDeadBackends {
 		go func() {
 			for {
-				time.Sleep(time.Duration(rand.Intn(20)+5) * time.Second)
+				time.Sleep(time.Duration(rand.Intn(5)) * time.Second)
 
 				idx := rand.Intn(len(loadBalancer.backends))
+				var delta = 0
+				for delta < len(loadBalancer.backends) {
+					idx = (idx + delta) % len(loadBalancer.backends)
+					if !loadBalancer.backends[idx].alive {
+						delta++
+					} else {
+						break
+					}
+				}
+				if delta == len(loadBalancer.backends) {
+					log.Printf("[chaos] no more backends to kill! exiting")
+					return
+				}
 
 				log.Printf("[chaos] killing backend %s", loadBalancer.backends[idx].url)
 				err := (*(loadBalancer.backends[idx].listener)).Close()
