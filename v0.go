@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"log"
@@ -187,6 +188,11 @@ type contextKey string
 
 const chosenBackendKey contextKey = "chosenBackend"
 
+type StatusInfoBackend struct {
+	URL   string `json:"url"`
+	Alive bool   `json:"alive"`
+}
+
 func reverseProxy(loadBalancer *LoadBalancer, listenPort int, logLock *sync.Mutex) {
 	log.Print("[reverseProxy] starting reverse proxy\n")
 	proxy := httputil.ReverseProxy{
@@ -195,7 +201,28 @@ func reverseProxy(loadBalancer *LoadBalancer, listenPort int, logLock *sync.Mute
 			pr.SetURL(chosen.url)
 		},
 	}
-
+	http.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		var statusInfo = make(map[string]any)
+		statusInfo["backends"] = []StatusInfoBackend{}
+		for _, b := range loadBalancer.backends {
+			val, ok := statusInfo["backends"]
+			if !ok {
+				log.Fatal("[reverseProxy] unreachable")
+			}
+			statusInfo["backends"] = append(val.([]StatusInfoBackend), StatusInfoBackend{
+				URL:   b.url.String(),
+				Alive: b.alive,
+			})
+		}
+		statusInfoJSON, err := json.MarshalIndent(statusInfo, "\n", "\t")
+		if err != nil {
+			log.Fatal("[reverseProxy] failed to marshal to json: ", err)
+		}
+		_, err = w.Write(statusInfoJSON) // XXX: does this send all data in the case when we don't get an error?
+		if err != nil {
+			log.Fatal("[reverseProxy] failed to write response: ", err)
+		}
+	})
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		var chosenBackend, err = loadBalancer.getNextBackend()
 		if err != nil {
