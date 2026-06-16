@@ -1,0 +1,11 @@
+package main
+
+const (
+	LOG_LEVEL_DEBUG = iota
+	LOG_LEVEL_INFO
+	LOG_LEVEL_WARN
+	LOG_LEVEL_ERROR
+	LOG_LEVEL_FATAL
+)
+
+const ()
