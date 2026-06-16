@@ -60,18 +60,27 @@ type LoadBalancer struct {
 }
 
 func (l *LoadBalancer) getNextBackend() (*Backend, error) {
+	if debugInfo.verbose {
+		log.Println("[loadBalancer] selecting a backend")
+	}
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 	var delta = 1
-	for i := 0; i < len(l.backends); i++ {
-		var iWrapping = (l.nextBackend + i) % len(l.backends)
+	for delta < len(l.backends) {
+		var iWrapping = (l.nextBackend + delta) % len(l.backends)
 		if !l.backends[iWrapping].alive {
+			if debugInfo.verbose {
+				log.Printf("backend %d is dead; incrementing delta\n", iWrapping)
+			}
 			delta++
 		} else {
 			break
 		}
 	}
 	l.nextBackend = (l.nextBackend + delta) % len(l.backends)
+	if debugInfo.verbose {
+		log.Println("[loadBalancer] backend selected: " + strconv.Itoa(l.nextBackend))
+	}
 	return &l.backends[l.nextBackend], nil
 }
 
