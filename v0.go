@@ -156,10 +156,11 @@ func main() {
 			for {
 				time.Sleep(time.Duration(rand.Intn(5)) * time.Second)
 
-				idx := rand.Intn(len(loadBalancer.backends))
+				initialIdx := rand.Intn(len(loadBalancer.backends))
 				var delta = 0
+				var idx = 0
 				for delta < len(loadBalancer.backends) {
-					idx = (idx + delta) % len(loadBalancer.backends)
+					idx = (initialIdx + delta) % len(loadBalancer.backends)
 					if !loadBalancer.backends[idx].alive {
 						delta++
 					} else {
