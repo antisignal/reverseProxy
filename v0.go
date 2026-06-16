@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"log"
+	"log/slog"
 	"math/rand"
 	"net"
 	"net/http"
@@ -38,6 +39,7 @@ func webServer(listener net.Listener) {
 	if debugInfo.verbose {
 		log.Println("[webServer] serving with listener", listener.Addr())
 	}
+
 	err := http.Serve(listener, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, err := w.Write([]byte("hello! you're connected on addr " + listener.Addr().String() + " :D"))
 		if err != nil {
@@ -64,6 +66,7 @@ type LoadBalancer struct {
 func (l *LoadBalancer) getNextBackend() (*Backend, error) {
 	if debugInfo.verbose {
 		log.Println("[loadBalancer] selecting a backend")
+
 	}
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
@@ -89,6 +92,11 @@ func (l *LoadBalancer) getNextBackend() (*Backend, error) {
 	return &l.backends[l.nextBackend], nil
 }
 
+func slogFatal(msg string, args ...interface{}) {
+	slog.Error(msg, args)
+	os.Exit(1)
+}
+
 func main() {
 
 	var originIP net.IP
@@ -107,8 +115,13 @@ func main() {
 	numBackends = *numBackendsPtr
 	originIP = net.ParseIP(*originIPString)
 	if originIP == nil || originIP.To4() == nil {
-		log.Fatal("invalid origin ip")
+		slogFatal("[main] invalid origin ip",
+			"event", EVENT_PROXY_ERROR_STARTUP,
+			"origin-ip-string", originIPString,
+			"timestamp", time.Now().String(),
+		)
 	}
+
 	var loadBalancer = LoadBalancer{
 		backends:    []Backend{},
 		nextBackend: 0,
@@ -120,11 +133,21 @@ func main() {
 		var originHostPortPair = originIP.String() + ":" + strconv.Itoa(currentPort)
 		originURL, err := url.Parse("http://" + originHostPortPair)
 		if err != nil {
-			log.Fatal(err)
+			slogFatal("[main] failed to parse origin url",
+				"event", EVENT_PROXY_ERROR_STARTUP,
+				"originHostPortPair", originHostPortPair,
+				"timestamp", time.Now().String(),
+				"err", err.Error(),
+			)
 		}
 		listener, err := net.Listen("tcp", originHostPortPair)
 		if err != nil {
-			log.Println(err)
+			slogFatal("[main] failed to listen on address",
+				"timestamp", time.Now().String(),
+				"event", EVENT_PROXY_ERROR_STARTUP,
+				"originHostPortPair", originHostPortPair,
+				"err", err.Error(),
+			)
 			currentPort++
 			if currentPort > 65535 {
 				log.Fatal("[main] ports above chosen start port exhausted!")
