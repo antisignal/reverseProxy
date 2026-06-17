@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type DebugInfo struct {
@@ -36,18 +38,33 @@ func getDebugInfo() DebugInfo {
 }
 
 func webServer(listener net.Listener) {
-	if debugInfo.verbose {
-		log.Println("[webServer] serving with listener", listener.Addr())
-	}
+	slog.Info("[webServer] server starting",
+		"event", EVENT_SERVER_STARTED,
+		"listener", listener.Addr(),
+		"timestamp", time.Now().String(),
+		"service", "webServer",
+	)
 
 	err := http.Serve(listener, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, err := w.Write([]byte("hello! you're connected on addr " + listener.Addr().String() + " :D"))
 		if err != nil {
-			log.Fatal(err)
+			slog.Info("[webServer] failed to write response",
+				"event", EVENT_SERVER_ERROR,
+				"listener", listener.Addr(),
+				"timestamp", time.Now().String(),
+				"error", err.Error(),
+				"service", "webServer",
+			)
 		}
 	}))
 	if err != nil {
-		log.Printf("[webServer] backend stopped: %v", err)
+		slog.Error("[webServer] backend failed to serve",
+			"event", EVENT_SERVER_ERROR,
+			"listener", listener.Addr(),
+			"error", err.Error(),
+			"timestamp", time.Now().String(),
+			"service", "webServer",
+		)
 	}
 }
 
@@ -64,19 +81,24 @@ type LoadBalancer struct {
 }
 
 func (l *LoadBalancer) getNextBackend() (*Backend, error) {
-	if debugInfo.verbose {
-		log.Println("[loadBalancer] selecting a backend")
-
-	}
+	slog.Info("[loadBalancer] selecting a backend",
+		"event", EVENT_BACKEND_SELECTING,
+		"timestamp", time.Now().String(),
+		"service", "getNextBackend",
+	)
+	var before = time.Now()
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 	var delta = 1
 	for delta < len(l.backends) {
 		var iWrapping = (l.nextBackend + delta) % len(l.backends)
 		if !l.backends[iWrapping].alive {
-			if debugInfo.verbose {
-				log.Printf("[loadBalancer] backend %d is dead; incrementing delta\n", iWrapping)
-			}
+			slog.Debug("[loadBalancer] backend is dead; incrementing delta",
+				"backend", iWrapping,
+				"timestamp", time.Now().String(),
+				"service", "getNextBackend",
+				"event", EVENT_BACKEND_SKIPPING,
+				"reason", REASON_BACKEND_DEAD)
 			delta++
 		} else {
 			break
@@ -86,9 +108,13 @@ func (l *LoadBalancer) getNextBackend() (*Backend, error) {
 		return nil, errors.New("no available backend")
 	}
 	l.nextBackend = (l.nextBackend + delta) % len(l.backends)
-	if debugInfo.verbose {
-		log.Println("[loadBalancer] backend selected: " + strconv.Itoa(l.nextBackend))
-	}
+	var since = time.Since(before)
+	slog.Info("[loadBalancer] backend selected",
+		"backend", l.nextBackend,
+		"event", EVENT_BACKEND_SELECTED,
+		"timestamp", time.Now().String(),
+		"service", "getNextBackend",
+		"latency-microseconds", since.Microseconds())
 	return &l.backends[l.nextBackend], nil
 }
 
@@ -117,8 +143,10 @@ func main() {
 	if originIP == nil || originIP.To4() == nil {
 		slogFatal("[main] invalid origin ip",
 			"event", EVENT_PROXY_ERROR_STARTUP,
-			"origin-ip-string", originIPString,
+			"origin-ip-string", *originIPString,
 			"timestamp", time.Now().String(),
+			"service", "main",
+			"error", "",
 		)
 	}
 
@@ -137,7 +165,8 @@ func main() {
 				"event", EVENT_PROXY_ERROR_STARTUP,
 				"originHostPortPair", originHostPortPair,
 				"timestamp", time.Now().String(),
-				"err", err.Error(),
+				"error", err.Error(),
+				"service", "main",
 			)
 		}
 		listener, err := net.Listen("tcp", originHostPortPair)
@@ -145,12 +174,20 @@ func main() {
 			slogFatal("[main] failed to listen on address",
 				"timestamp", time.Now().String(),
 				"event", EVENT_PROXY_ERROR_STARTUP,
+				"reason", REASON_LISTEN_FAILED,
 				"originHostPortPair", originHostPortPair,
-				"err", err.Error(),
+				"error", err.Error(),
+				"service", "main",
 			)
 			currentPort++
 			if currentPort > 65535 {
-				log.Fatal("[main] ports above chosen start port exhausted!")
+				slogFatal("[main] ports above chosen start port exhausted!",
+					"event", EVENT_PROXY_ERROR_STARTUP,
+					"reason", REASON_PORTS_EXHAUSTED,
+					"originHostPortPair", originHostPortPair,
+					"error", "nil",
+					"service", "main",
+				)
 			}
 			continue
 		}
@@ -165,7 +202,12 @@ func main() {
 			var dummyURL *url.URL
 			dummyURL, err = url.Parse("http://127.0.0.1:8081")
 			if err != nil {
-				log.Fatal(err)
+				slogFatal("failed to parse dummy url",
+					"event", EVENT_SERVER_ERROR_STARTUP,
+					"reason", REASON_DUMMY_URL_INVALID,
+					"timestamp", time.Now().String(),
+					"error", err.Error(),
+				)
 			}
 			loadBalancer.backends[numBackendsAssigned-1].url = dummyURL
 		}
@@ -175,7 +217,7 @@ func main() {
 	logLock := sync.Mutex{}
 	go reverseProxy(&loadBalancer, listenPort, &logLock)
 	if debugInfo.testDeadBackends {
-		go func() {
+		go func() { // chaos
 			for {
 				time.Sleep(time.Duration(rand.Intn(5)) * time.Second)
 
@@ -191,16 +233,38 @@ func main() {
 					}
 				}
 				if delta == len(loadBalancer.backends) {
-					log.Printf("[chaos] no more backends to kill! exiting")
+					slog.Info("[chaos] no more backends to kill! exiting",
+						"event", EVENT_CHAOS_EXITING,
+						"reason", REASON_ALL_BACKENDS_DEAD,
+						"service", "chaos",
+						"timestamp", time.Now().String())
 					return
 				}
-
-				log.Printf("[chaos] killing backend %s", loadBalancer.backends[idx].url)
+				slog.Info("\"[chaos] killing backend",
+					"backend-idx", idx,
+					"backend-url", loadBalancer.backends[idx].url,
+					"timestamp", time.Now().String(),
+					"service", "chaos",
+					"event", EVENT_CHAOS_KILLING_BACKEND)
+				var before = time.Now()
 				err := (*(loadBalancer.backends[idx].listener)).Close()
 				if err != nil {
 					log.Println("[chaos] error closing listener (expected):", err)
+					slog.Info("[chaos] attempted to close already closed listener",
+						"event", EVENT_CHAOS_FAILED_TO_KILL,
+						"reason", REASON_LISTENER_ALREADY_CLOSED,
+						"backend-idx", idx,
+						"backend-url", loadBalancer.backends[idx].url,
+						"timestamp", time.Now().String())
 				} else {
-					log.Printf("[chaos] killed %s", loadBalancer.backends[idx].url)
+					slog.Info("[chaos] killed backend",
+						"backend-idx", idx,
+						"backend-url", loadBalancer.backends[idx].url,
+						"event", EVENT_CHAOS_KILLED_BACKEND,
+						"service", "chaos",
+						"timestamp", time.Now().String(),
+						"latency", time.Since(before),
+					)
 				}
 			}
 		}()
@@ -218,7 +282,11 @@ type StatusInfoBackend struct {
 }
 
 func reverseProxy(loadBalancer *LoadBalancer, listenPort int, logLock *sync.Mutex) {
-	log.Print("[reverseProxy] starting reverse proxy\n")
+
+	slog.Info("[reverseProxy] starting reverse proxy",
+		"event", EVENT_PROXY_STARTING,
+		"timestamp", time.Now().String(),
+		"service", "reverseProxy")
 	proxy := httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			var chosen = pr.In.Context().Value(chosenBackendKey).(*Backend)
@@ -231,7 +299,7 @@ func reverseProxy(loadBalancer *LoadBalancer, listenPort int, logLock *sync.Mute
 		for _, b := range loadBalancer.backends {
 			val, ok := statusInfo["backends"]
 			if !ok {
-				log.Fatal("[reverseProxy] unreachable")
+				panic("[reverseProxy] statusInfo invariant violated: missing backends")
 			}
 			statusInfo["backends"] = append(val.([]StatusInfoBackend), StatusInfoBackend{
 				URL:   b.url.String(),
@@ -240,17 +308,44 @@ func reverseProxy(loadBalancer *LoadBalancer, listenPort int, logLock *sync.Mute
 		}
 		statusInfoJSON, err := json.MarshalIndent(statusInfo, "\n", "\t")
 		if err != nil {
-			log.Fatal("[reverseProxy] failed to marshal to json: ", err)
+			slogFatal("[reverseProxy] failed to marshal to json: ",
+				"error", err,
+				"service", "reverseProxy",
+				"timestamp", time.Now().String(),
+				"event", EVENT_PROXY_ERROR,
+				"reason", REASON_FAILED_TO_MARSHAL_TO_JSON,
+				"error", err.Error())
 		}
 		_, err = w.Write(statusInfoJSON) // XXX: does this send all data in the case when we don't get an error?
 		if err != nil {
-			log.Fatal("[reverseProxy] failed to write response: ", err)
+			slogFatal("[reverseProxy] failed to write response: ",
+				"error", err,
+
+				"service", "reverseProxy",
+				"timestamp", time.Now().String(),
+				"event", EVENT_PROXY_ERROR,
+				"reason", REASON_FAILED_TO_WRITE,
+				"error", err.Error())
 		}
 	})
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		var requestID = uuid.New()
+		slog.Info("[reverseProxy] request received",
+			"event", EVENT_REQUEST_RECEIVED,
+			"timestamp", time.Now().String(),
+			"sending-addr", r.RemoteAddr,
+			"method", r.Method,
+			"path", r.URL.Path,
+			"id", requestID.String(),
+		)
 		var chosenBackend, err = loadBalancer.getNextBackend()
 		if err != nil {
-			log.Println("[reverseProxy] all backends exhausted, returning 503 Service Unavailable")
+			slog.Info("[reverseProxy] all backends exhausted, returning 503 Service Unavailable",
+				"service", "reverseProxy",
+				"timestamp", time.Now().String(),
+				"event", EVENT_PROXY_RETURNING_503,
+				"reason", REASON_ALL_BACKENDS_DEAD,
+				"error", err.Error())
 			http.Error(w, "503 Service Unavailable", 503)
 			return
 		}
@@ -259,26 +354,34 @@ func reverseProxy(loadBalancer *LoadBalancer, listenPort int, logLock *sync.Mute
 		start := time.Now()
 		loggingWriter := makeWriterLogging(w)
 		proxy.ServeHTTP(loggingWriter, r)
-		latency := time.Since(start)
-		var logStrings = []string{}
-		logStrings = append(logStrings, "[reverseProxy] handled request")
-		logStrings = append(logStrings, "==========")
-		logStrings = append(logStrings, "timestamp: "+time.Now().Format("2006-01-02 15:04:05"))
-		logStrings = append(logStrings, "sending addr: "+r.RemoteAddr)
-		logStrings = append(logStrings, "destination host: "+chosenBackend.url.String())
-		logStrings = append(logStrings, "method: "+r.Method)
-		logStrings = append(logStrings, "path: "+r.URL.Path)
-		logStrings = append(logStrings, "latency: "+strconv.Itoa(int(latency)))
-		logStrings = append(logStrings, "status: "+strconv.Itoa((*loggingWriter).code))
-		logStrings = append(logStrings, "==========")
-		logLock.Lock()
-		for _, s := range logStrings {
-			log.Println(s)
-		}
-		logLock.Unlock()
+		slog.Info("[reverseProxy] handled request",
+			"timestamp", time.Now().String(),
+			"event", EVENT_REQUEST_COMPLETED,
+			"timestamp", time.Now().String(),
+			"sending-addr", r.RemoteAddr,
+			"method", r.Method,
+			"path", r.URL.Path,
+			"id", requestID.String(),
+			"latency", time.Since(start),
+			"status", strconv.Itoa((*loggingWriter).code))
 	})
 	log.Println("[reverseProxy] Listening on :" + strconv.Itoa(listenPort))
-	log.Fatal(http.ListenAndServe(":"+strconv.Itoa(listenPort), nil))
+	err := http.ListenAndServe(":"+strconv.Itoa(listenPort), nil)
+	if err != nil {
+		slogFatal("[reverseProxy] stopping reverse proxy due to error",
+			"event", EVENT_PROXY_STOPPING,
+			"reason", REASON_STOPPING_DUE_TO_ERROR,
+			"timestamp", time.Now().String(),
+			"service", "reverseProxy",
+			"error", err.Error(),
+		)
+	}
+	slog.Info("[reverseProxy] stopping reverse proxy (without error)",
+		"event", EVENT_PROXY_STOPPING,
+		"reason", REASON_STOPPING_NORMALLY,
+		"timestamp", time.Now().String(),
+		"service", "reverseProxy",
+	)
 }
 
 func healthChecker(backends []Backend, logLock *sync.Mutex) {
@@ -298,27 +401,51 @@ func healthChecker(backends []Backend, logLock *sync.Mutex) {
 						if strings.Contains(err.Error(), "connect: connection refused") {
 							connectionRefused = true
 						} else {
-							log.Fatal(err)
+							slog.Error("[healthChecker] unhandled error after GET request",
+								"service", "healthChecker",
+								"error", err.Error(),
+								"timestamp", time.Now().String(),
+								"event", EVENT_HEALTHCHECKER_ERROR,
+								"reason", REASON_REQUEST_FAILED,
+							)
+							return
 						}
 					}
 				}
 				logLock.Lock()
 				if os.IsTimeout(err) || connectionRefused || resp.StatusCode != http.StatusOK {
 					if backends[i].alive == true {
-						log.Println("[healthChecker] backend " + backends[i].url.String() + " is dead")
+						slog.Info("[healthChecker] backend is dead",
+							"backend-url", backends[i].url.String(),
+							"backend-idx", i,
+							"service", "healthChecker",
+							"timestamp", time.Now().String(),
+							"event", EVENT_BACKEND_HEALTH_CHANGED,
+							"health-status", "dead")
 						backends[i].alive = false
 					}
 				} else {
 					if backends[i].alive == false {
 						backends[i].alive = true
-						log.Println("[healthChecker] backend " + backends[i].url.String() + " is alive")
+						slog.Info("[healthChecker] backend is dead",
+							"backend-url", backends[i].url.String(),
+							"backend-idx", i,
+							"service", "healthChecker",
+							"timestamp", time.Now().String(),
+							"event", EVENT_BACKEND_HEALTH_CHANGED,
+							"health-status", "alive")
 					}
 				}
 				logLock.Unlock()
 				if resp != nil {
 					err = resp.Body.Close()
 					if err != nil {
-						log.Fatal(err)
+						slog.Error("[healthChecker] failed to close response body",
+							"event", EVENT_HEALTHCHECKER_ERROR,
+							"service", "healthChecker",
+							"timestamp", time.Now().String(),
+							"reason", REASON_FAILED_TO_CLOSE_RESPONSE_BODY)
+						return
 					}
 				}
 			}()
