@@ -22,15 +22,17 @@ import (
 )
 
 type DebugInfo struct {
-	test502BadGateway bool
-	testDeadBackends  bool
-	verbose           bool
+	test502BadGateway       bool
+	testDeadBackends        bool
+	terminateOnChaosExiting bool
+	verbose                 bool
 }
 
 var debugInfo = DebugInfo{
-	test502BadGateway: false,
-	testDeadBackends:  true,
-	verbose:           true,
+	test502BadGateway:       false,
+	testDeadBackends:        true,
+	terminateOnChaosExiting: true,
+	verbose:                 true,
 }
 
 func getDebugInfo() DebugInfo {
@@ -88,9 +90,8 @@ func (l *LoadBalancer) getNextBackend() (*Backend, error) {
 	)
 	var before = time.Now()
 	l.mutex.Lock()
-	defer l.mutex.Unlock()
-	var delta = 0
-	for delta < len(l.backends) {
+	var delta = 1
+	for delta <= len(l.backends) {
 		var iWrapping = (l.nextBackend + delta) % len(l.backends)
 		if !l.backends[iWrapping].alive {
 			slog.Debug("[loadBalancer] backend is dead; incrementing delta",
@@ -104,6 +105,7 @@ func (l *LoadBalancer) getNextBackend() (*Backend, error) {
 			break
 		}
 	}
+	l.mutex.Unlock()
 	if delta == len(l.backends) {
 		return nil, errors.New("no available backend")
 	}
@@ -226,6 +228,7 @@ func main() {
 				initialIdx := rand.Intn(len(loadBalancer.backends))
 				var delta = 0
 				var idx = 0
+				loadBalancer.mutex.Lock()
 				for delta < len(loadBalancer.backends) {
 					idx = (initialIdx + delta) % len(loadBalancer.backends)
 					if !loadBalancer.backends[idx].alive {
@@ -234,12 +237,16 @@ func main() {
 						break
 					}
 				}
+				loadBalancer.mutex.Unlock()
 				if delta == len(loadBalancer.backends) {
 					slog.Info("[chaos] no more backends to kill! exiting",
 						"event", EVENT_CHAOS_EXITING,
 						"reason", REASON_ALL_BACKENDS_DEAD,
 						"service", "chaos",
 						"timestamp", time.Now().String())
+					if debugInfo.terminateOnChaosExiting {
+						os.Exit(0)
+					}
 					return
 				}
 				slog.Info("\"[chaos] killing backend",
@@ -271,7 +278,7 @@ func main() {
 			}
 		}()
 	}
-	healthChecker(loadBalancer.backends)
+	healthChecker(&loadBalancer)
 }
 
 type contextKey string
@@ -303,10 +310,12 @@ func reverseProxy(loadBalancer *LoadBalancer, listenPort int) {
 			if !ok {
 				panic("[reverseProxy] statusInfo invariant violated: missing backends")
 			}
+			loadBalancer.mutex.Lock()
 			statusInfo["backends"] = append(val.([]StatusInfoBackend), StatusInfoBackend{
 				URL:   b.url.String(),
 				Alive: b.alive,
 			})
+			loadBalancer.mutex.Unlock()
 		}
 		statusInfoJSON, err := json.MarshalIndent(statusInfo, "\n", "\t")
 		if err != nil {
@@ -386,10 +395,10 @@ func reverseProxy(loadBalancer *LoadBalancer, listenPort int) {
 	)
 }
 
-func healthChecker(backends []Backend) {
+func healthChecker(loadBalancer *LoadBalancer) {
 	for {
 		var wg sync.WaitGroup
-		for i, backend := range backends {
+		for i, backend := range loadBalancer.backends {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -414,22 +423,23 @@ func healthChecker(backends []Backend) {
 						}
 					}
 				}
+				loadBalancer.mutex.Lock()
 				if os.IsTimeout(err) || connectionRefused || resp.StatusCode != http.StatusOK {
-					if backends[i].alive == true {
+					if loadBalancer.backends[i].alive == true {
 						slog.Info("[healthChecker] backend is dead",
-							"backend-url", backends[i].url.String(),
+							"backend-url", loadBalancer.backends[i].url.String(),
 							"backend-idx", i,
 							"service", "healthChecker",
 							"timestamp", time.Now().String(),
 							"event", EVENT_BACKEND_HEALTH_CHANGED,
 							"health-status", "dead")
-						backends[i].alive = false
+						loadBalancer.backends[i].alive = false
 					}
 				} else {
-					if backends[i].alive == false {
-						backends[i].alive = true
+					if loadBalancer.backends[i].alive == false {
+						loadBalancer.backends[i].alive = true
 						slog.Info("[healthChecker] backend is dead",
-							"backend-url", backends[i].url.String(),
+							"backend-url", loadBalancer.backends[i].url.String(),
 							"backend-idx", i,
 							"service", "healthChecker",
 							"timestamp", time.Now().String(),
@@ -437,6 +447,7 @@ func healthChecker(backends []Backend) {
 							"health-status", "alive")
 					}
 				}
+				loadBalancer.mutex.Unlock()
 				if resp != nil {
 					err = resp.Body.Close()
 					if err != nil {
