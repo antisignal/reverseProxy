@@ -23,6 +23,7 @@ const (
 	EVENT_CHAOS_KILLED_BACKEND  = "chaos_killed_backend"
 	EVENT_CHAOS_FAILED_TO_KILL  = "chaos_listener_failed_to_kill"
 	EVENT_HEALTHCHECKER_ERROR   = "healthchecker_error"
+	EVENT_PROGRAM_EXITING       = "program_exiting"
 )
 
 const (
@@ -38,4 +39,5 @@ const (
 	REASON_STOPPING_DUE_TO_ERROR         = "stopping_due_to_error"
 	REASON_REQUEST_FAILED                = "request_failed"
 	REASON_FAILED_TO_CLOSE_RESPONSE_BODY = "failed_to_close_response_body"
+	REASON_TERMINATE_ON_CHAOS_EXITING    = "terminate_on_chaos_exiting"
 )
