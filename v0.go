@@ -89,7 +89,7 @@ func (l *LoadBalancer) getNextBackend() (*Backend, error) {
 	var before = time.Now()
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
-	var delta = 1
+	var delta = 0
 	for delta < len(l.backends) {
 		var iWrapping = (l.nextBackend + delta) % len(l.backends)
 		if !l.backends[iWrapping].alive {
@@ -119,7 +119,7 @@ func (l *LoadBalancer) getNextBackend() (*Backend, error) {
 }
 
 func slogFatal(msg string, args ...interface{}) {
-	slog.Error(msg, args)
+	slog.Error(msg, args...)
 	os.Exit(1)
 }
 
@@ -171,7 +171,7 @@ func main() {
 		}
 		listener, err := net.Listen("tcp", originHostPortPair)
 		if err != nil {
-			slogFatal("[main] failed to listen on address",
+			slog.Info("[main] failed to listen on address; trying next available port",
 				"timestamp", time.Now().String(),
 				"event", EVENT_PROXY_ERROR_STARTUP,
 				"reason", REASON_LISTEN_FAILED,
@@ -214,10 +214,12 @@ func main() {
 		go webServer(listener)
 
 	}
-	logLock := sync.Mutex{}
-	go reverseProxy(&loadBalancer, listenPort, &logLock)
+	go reverseProxy(&loadBalancer, listenPort)
 	if debugInfo.testDeadBackends {
 		go func() { // chaos
+			if len(loadBalancer.backends) == 0 {
+				panic("violated invariant: no backends provided")
+			}
 			for {
 				time.Sleep(time.Duration(rand.Intn(5)) * time.Second)
 
@@ -269,7 +271,7 @@ func main() {
 			}
 		}()
 	}
-	healthChecker(loadBalancer.backends, &logLock)
+	healthChecker(loadBalancer.backends)
 }
 
 type contextKey string
@@ -281,7 +283,7 @@ type StatusInfoBackend struct {
 	Alive bool   `json:"alive"`
 }
 
-func reverseProxy(loadBalancer *LoadBalancer, listenPort int, logLock *sync.Mutex) {
+func reverseProxy(loadBalancer *LoadBalancer, listenPort int) {
 
 	slog.Info("[reverseProxy] starting reverse proxy",
 		"event", EVENT_PROXY_STARTING,
@@ -384,7 +386,7 @@ func reverseProxy(loadBalancer *LoadBalancer, listenPort int, logLock *sync.Mute
 	)
 }
 
-func healthChecker(backends []Backend, logLock *sync.Mutex) {
+func healthChecker(backends []Backend) {
 	for {
 		var wg sync.WaitGroup
 		for i, backend := range backends {
@@ -412,7 +414,6 @@ func healthChecker(backends []Backend, logLock *sync.Mutex) {
 						}
 					}
 				}
-				logLock.Lock()
 				if os.IsTimeout(err) || connectionRefused || resp.StatusCode != http.StatusOK {
 					if backends[i].alive == true {
 						slog.Info("[healthChecker] backend is dead",
@@ -436,7 +437,6 @@ func healthChecker(backends []Backend, logLock *sync.Mutex) {
 							"health-status", "alive")
 					}
 				}
-				logLock.Unlock()
 				if resp != nil {
 					err = resp.Body.Close()
 					if err != nil {
