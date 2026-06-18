@@ -246,6 +246,11 @@ func main() {
 						"service", "chaos",
 						"timestamp", time.Now().String())
 					if debugInfo.terminateOnChaosExiting {
+						slog.Info("[chaos] stopping entire program (terminateOnChaosExiting)",
+							"event", EVENT_PROGRAM_EXITING,
+							"service", "chaos",
+							"reason", REASON_TERMINATE_ON_CHAOS_EXITING,
+							"timestamp", time.Now().String())
 						os.Exit(0)
 					}
 					return
