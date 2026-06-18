@@ -105,8 +105,8 @@ func (l *LoadBalancer) getNextBackend() (*Backend, error) {
 			break
 		}
 	}
-	l.mutex.Unlock()
 	if delta == len(l.backends) {
+		l.mutex.Unlock()
 		return nil, errors.New("no available backend")
 	}
 	l.nextBackend = (l.nextBackend + delta) % len(l.backends)
@@ -117,6 +117,7 @@ func (l *LoadBalancer) getNextBackend() (*Backend, error) {
 		"timestamp", time.Now().String(),
 		"service", "getNextBackend",
 		"latency-microseconds", since.Microseconds())
+	l.mutex.Unlock()
 	return &l.backends[l.nextBackend], nil
 }
 
