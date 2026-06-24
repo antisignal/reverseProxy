@@ -7,9 +7,9 @@ const (
 	EVENT_BACKEND_SELECTED  = "backend_selected"
 	EVENT_BACKEND_SKIPPING  = "backend_skipping"
 
-	EVENT_REQUEST_COMPLETED = "[STRING NOT ASSIGNED]"
-	EVENT_BACKEND_HEALTH_CHANGED
-	EVENT_BACKEND_ADDED
+	EVENT_REQUEST_COMPLETED      = "request_completed"
+	EVENT_BACKEND_HEALTH_CHANGED = "backend_health_changed"
+	EVENT_BACKEND_ADDED          = "[STRING NOT ASSIGNED]"
 	EVENT_BACKEND_REMOVED
 	EVENT_PROXY_ERROR
 	EVENT_PROXY_ERROR_STARTUP   = "proxy_error_startup"
@@ -32,6 +32,7 @@ const (
 	REASON_BACKEND_DEAD                  = "backend_dead"
 	REASON_DUMMY_URL_INVALID             = "dummy_url_invalid"
 	REASON_ALL_BACKENDS_DEAD             = "all_backends_dead"
+	REASON_TOO_MANY_BACKENDS_DEAD        = "too_many_backends_dead"
 	REASON_LISTENER_ALREADY_CLOSED       = "listener_already_closed"
 	REASON_FAILED_TO_MARSHAL_TO_JSON     = "failed_to_marshal_to_json"
 	REASON_FAILED_TO_WRITE               = "failed_to_write"
