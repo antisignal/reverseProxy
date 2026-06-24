@@ -290,6 +290,7 @@ func main() {
 type contextKey string
 
 const chosenBackendKey contextKey = "chosenBackend"
+const retryCountKey contextKey = "retryCount"
 
 type StatusInfoBackend struct {
 	URL   string `json:"url"`
@@ -307,32 +308,55 @@ func reverseProxy(loadBalancer *LoadBalancer, listenPort int) {
 			var chosen = pr.In.Context().Value(chosenBackendKey).(*Backend)
 			pr.SetURL(chosen.url)
 		},
-		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			slog.Error("[reverseProxy] error handling request; choosing another backend",
+	}
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		slog.Error("[reverseProxy] error handling request; choosing another backend",
+			"error", err,
+			"service", "reverseProxy",
+			"timestamp", time.Now().String(),
+			"event", EVENT_PROXY_ERROR,
+			"reason", REASON_BACKEND_DEAD,
+			"backend", r.Context().Value(chosenBackendKey).(*Backend).url,
+			"error", err.Error())
+		loadBalancer.mutex.Lock()
+		r.Context().Value(chosenBackendKey).(*Backend).alive = false
+		slog.Info("[reverseProxy] backend not working; marking it dead",
+			"service", "reverseProxy",
+			"timestamp", time.Now().String(),
+			"event", EVENT_BACKEND_HEALTH_CHANGED,
+			"health", "dead",
+			"reason", REASON_REQUEST_FAILED)
+		loadBalancer.mutex.Unlock()
+		nextBackend, err := loadBalancer.getNextBackend()
+		if err != nil {
+			slog.Error("[reverseProxy] failed to get backend after retry: all backends dead!",
 				"error", err,
 				"service", "reverseProxy",
 				"timestamp", time.Now().String(),
 				"event", EVENT_PROXY_ERROR,
-				"reason", REASON_BACKEND_DEAD,
-				"backend", r.Context().Value(chosenBackendKey).(*Backend).url,
+				"reason", REASON_ALL_BACKENDS_DEAD,
 				"error", err.Error())
-			loadBalancer.mutex.Lock()
-			r.Context().Value(chosenBackendKey).(*Backend).alive = false
-			loadBalancer.mutex.Unlock()
-			nextBackend, err := loadBalancer.getNextBackend()
-			if err != nil {
-				slog.Error("[reverseProxy] failed to get backend after retry: all backends dead!",
-					"error", err,
-					"service", "reverseProxy",
-					"timestamp", time.Now().String(),
-					"event", EVENT_PROXY_ERROR,
-					"reason", REASON_ALL_BACKENDS_DEAD,
-					"error", err.Error())
-				return
-			}
-			*r = *r.WithContext(context.WithValue(r.Context(), chosenBackendKey, nextBackend))
-			w.WriteHeader(http.StatusBadGateway)
-		},
+			return
+		}
+		*r = *r.WithContext(context.WithValue(r.Context(), chosenBackendKey, nextBackend))
+		var retriesPtr = r.Context().Value(retryCountKey)
+		var retries = 0
+		if retriesPtr == nil {
+			*r = *r.WithContext(context.WithValue(r.Context(), retryCountKey, 0))
+		} else {
+			retries = retriesPtr.(int)
+			*r = *r.WithContext(context.WithValue(r.Context(), retryCountKey, retries+1))
+		}
+		if retries+1 > 5 {
+			slog.Error("[reverseProxy] failed to get backend after max retries: too many backends dead!",
+				"error", err,
+				"service", "reverseProxy",
+				"timestamp", time.Now().String(),
+				"event", EVENT_PROXY_ERROR,
+				"reason", REASON_TOO_MANY_BACKENDS_DEAD)
+			return
+		}
+		proxy.ServeHTTP(w, r)
 	}
 	http.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
 		var statusInfo = make(map[string]any)
@@ -396,13 +420,7 @@ func reverseProxy(loadBalancer *LoadBalancer, listenPort int) {
 			context.WithValue(r.Context(), chosenBackendKey, chosenBackend))
 		start := time.Now()
 		loggingWriter := makeWriterLogging(w)
-		var retries = 5 // TODO: make this not hardcoded
-		for i := 0; i < retries; i++ {
-			proxy.ServeHTTP(loggingWriter, r)
-			if loggingWriter.code != 502 {
-				break
-			}
-		}
+		proxy.ServeHTTP(loggingWriter, r)
 		slog.Info("[reverseProxy] handled request",
 			"timestamp", time.Now().String(),
 			"event", EVENT_REQUEST_COMPLETED,
