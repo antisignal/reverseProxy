@@ -12,4 +12,5 @@ This project has the following features:
 - a fault injection framework which simulates degraded conditions (502 errors, dead and unhealthy backends)
 - a CLI where args like the number of simulated backends and preferred port ranges for backends can be selected
 
+The reverse proxy has the following architecture:
 ![Reverse Proxy Architecture Diagram](https://imgur.com/a/uPU6SPl)
