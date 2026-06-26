@@ -13,4 +13,4 @@ This project has the following features:
 - a CLI where args like the number of simulated backends and preferred port ranges for backends can be selected
 
 The reverse proxy has the following architecture:
-![Reverse Proxy Architecture Diagram](https://imgur.com/a/uPU6SPl)
+![Reverse Proxy Architecture Diagram](https://i.imgur.com/tFQVSUU.png)
