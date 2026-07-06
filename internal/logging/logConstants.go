@@ -1,4 +1,4 @@
-package main
+package logging
 
 const (
 	EVENT_SERVER_STARTED    = "server_started"
