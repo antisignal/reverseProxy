@@ -21,17 +21,17 @@ func main() {
 
 	var originIP net.IP
 	var listenPort int
-	var originPortsStart int
+	var backendPortsStart int
 	var numBackends int
 
 	var originIPString = flag.String("origin-ip", "127.0.0.1", "origin ip")
 	var listenPortPtr = flag.Int("listen-port", 8080, "http listen port")
-	var originPortsStartPtr = flag.Int("origin-ports-start", 9090, "http origin port")
+	var backendPortsStartPtr = flag.Int("backend-ports-start", 9090, "http backend origin port")
 	var numBackendsPtr = flag.Int("num-backends", 10, "number of backends")
 
 	flag.Parse()
 	listenPort = *listenPortPtr
-	originPortsStart = *originPortsStartPtr
+	backendPortsStart = *backendPortsStartPtr
 	numBackends = *numBackendsPtr
 	originIP = net.ParseIP(*originIPString)
 	if originIP == nil || originIP.To4() == nil {
@@ -49,27 +49,27 @@ func main() {
 		NextBackend: 0,
 		Mutex:       sync.Mutex{},
 	}
-	var currentPort = originPortsStart
+	var currentPort = backendPortsStart
 	var numBackendsAssigned = 0
 	for numBackendsAssigned < numBackends {
-		var originHostPortPair = originIP.String() + ":" + strconv.Itoa(currentPort)
-		originURL, err := url.Parse("http://" + originHostPortPair)
+		var backendHostPortPair = originIP.String() + ":" + strconv.Itoa(currentPort)
+		backendURL, err := url.Parse("http://" + backendHostPortPair)
 		if err != nil {
-			logging.SlogFatal("[main] failed to parse origin url",
+			logging.SlogFatal("[main] failed to parse backend url",
 				"event", logging.EVENT_PROXY_ERROR_STARTUP,
-				"originHostPortPair", originHostPortPair,
+				"backendHostPortPair", backendHostPortPair,
 				"timestamp", time.Now().String(),
 				"error", err.Error(),
 				"service", "main",
 			)
 		}
-		listener, err := net.Listen("tcp", originHostPortPair)
+		listener, err := net.Listen("tcp", backendHostPortPair)
 		if err != nil {
 			slog.Info("[main] failed to listen on address; trying next available port",
 				"timestamp", time.Now().String(),
 				"event", logging.EVENT_PROXY_ERROR_STARTUP,
 				"reason", logging.REASON_LISTEN_FAILED,
-				"originHostPortPair", originHostPortPair,
+				"originHostPortPair", backendHostPortPair,
 				"error", err.Error(),
 				"service", "main",
 			)
@@ -78,7 +78,7 @@ func main() {
 				logging.SlogFatal("[main] ports above chosen start port exhausted!",
 					"event", logging.EVENT_PROXY_ERROR_STARTUP,
 					"reason", logging.REASON_PORTS_EXHAUSTED,
-					"originHostPortPair", originHostPortPair,
+					"originHostPortPair", backendHostPortPair,
 					"error", "nil",
 					"service", "main",
 				)
@@ -87,7 +87,7 @@ func main() {
 		}
 		lb.Backends = append(lb.Backends, loadBalancer.Backend{
 			Alive:    true,
-			Url:      originURL,
+			Url:      backendURL,
 			Listener: &listener,
 		})
 		numBackendsAssigned++
