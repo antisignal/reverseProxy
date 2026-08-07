@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func Chaos(lb *loadBalancer.LoadBalancer) { // chaos
+func Chaos(lb *loadBalancer.LoadBalancer, conf *config.Config) { // chaos
 	if len(lb.Backends) == 0 {
 		panic("violated invariant: no backends provided")
 	}
@@ -37,7 +37,7 @@ func Chaos(lb *loadBalancer.LoadBalancer) { // chaos
 				"reason", logging.REASON_ALL_BACKENDS_DEAD,
 				"service", "chaos",
 				"timestamp", time.Now().String())
-			if config.GetDebugInfo().TerminateOnChaosExiting {
+			if conf.TerminateOnChaosExiting {
 				slog.Info("[chaos] stopping entire program (terminateOnChaosExiting)",
 					"event", logging.EVENT_PROGRAM_EXITING,
 					"service", "chaos",

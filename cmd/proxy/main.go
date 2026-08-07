@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"log/slog"
 	"net"
 	"net/url"
@@ -19,25 +18,19 @@ import (
 
 func main() {
 
-	var originIP net.IP
-	var listenPort int
-	var backendPortsStart int
-	var numBackends int
+	var conf = config.GetConfig()
+	if conf == nil {
+		logging.SlogFatal("[main] config creation failed; terminating",
+			"event", logging.EVENT_PROGRAM_EXITING,
+			"reason", logging.REASON_INVALID_CONFIG,
+			"timestamp", time.Now().String(),
+			"service", "main")
+	}
 
-	var originIPString = flag.String("origin-ip", "127.0.0.1", "origin ip")
-	var listenPortPtr = flag.Int("listen-port", 8080, "http listen port")
-	var backendPortsStartPtr = flag.Int("backend-ports-start", 9090, "http backend origin port")
-	var numBackendsPtr = flag.Int("num-backends", 10, "number of backends")
-
-	flag.Parse()
-	listenPort = *listenPortPtr
-	backendPortsStart = *backendPortsStartPtr
-	numBackends = *numBackendsPtr
-	originIP = net.ParseIP(*originIPString)
-	if originIP == nil || originIP.To4() == nil {
+	if conf.OriginIP == nil || conf.OriginIP.To4() == nil {
 		logging.SlogFatal("[main] invalid origin ip",
 			"event", logging.EVENT_PROXY_ERROR_STARTUP,
-			"origin-ip-string", *originIPString,
+			"origin-ip-string", conf.OriginIP.String(),
 			"timestamp", time.Now().String(),
 			"service", "main",
 			"error", "",
@@ -49,10 +42,10 @@ func main() {
 		NextBackend: 0,
 		Mutex:       sync.Mutex{},
 	}
-	var currentPort = backendPortsStart
+	var currentPort = conf.OriginPortsStart
 	var numBackendsAssigned = 0
-	for numBackendsAssigned < numBackends {
-		var backendHostPortPair = originIP.String() + ":" + strconv.Itoa(currentPort)
+	for numBackendsAssigned < conf.NumBackends {
+		var backendHostPortPair = conf.OriginIP.String() + ":" + strconv.Itoa(currentPort)
 		backendURL, err := url.Parse("http://" + backendHostPortPair)
 		if err != nil {
 			logging.SlogFatal("[main] failed to parse backend url",
@@ -92,7 +85,7 @@ func main() {
 		})
 		numBackendsAssigned++
 		currentPort++
-		if config.GetDebugInfo().Test502BadGateway {
+		if conf.Test502BadGateway {
 			var dummyURL *url.URL
 			dummyURL, err = url.Parse("http://127.0.0.1:8081")
 			if err != nil {
@@ -108,9 +101,9 @@ func main() {
 		go backend.WebServer(listener)
 
 	}
-	go proxy.ReverseProxy(&lb, listenPort)
-	if config.GetDebugInfo().TestDeadBackends {
-		go chaos.Chaos(&lb)
+	go proxy.ReverseProxy(&lb, conf.ListenPort)
+	if conf.TestDeadBackends {
+		go chaos.Chaos(&lb, conf)
 	}
 	health.HealthChecker(&lb)
 }

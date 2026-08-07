@@ -2,6 +2,7 @@ package logging
 
 const (
 	EVENT_SERVER_STARTED    = "server_started"
+	EVENT_INVALID_CONFIG    = "invalid_config"
 	EVENT_REQUEST_RECEIVED  = "[STRING NOT ASSIGNED]"
 	EVENT_BACKEND_SELECTING = "backend_selecting"
 	EVENT_BACKEND_SELECTED  = "backend_selected"
@@ -40,4 +41,15 @@ const (
 	REASON_REQUEST_FAILED                = "request_failed"
 	REASON_FAILED_TO_CLOSE_RESPONSE_BODY = "failed_to_close_response_body"
 	REASON_TERMINATE_ON_CHAOS_EXITING    = "terminate_on_chaos_exiting"
+
+	REASON_INVALID_ORIGIN_IP                         = "invalid_origin_ip"
+	REASON_INVALID_LISTEN_PORT                       = "invalid_listen_port"
+	REASON_INVALID_LOG_LEVEL                         = "invalid_log_level"
+	REASON_INVALID_ORIGIN_PORTS_START                = "invalid_origin_ports_start"
+	REASON_INVALID_NUM_BACKENDS                      = "invalid_num_backends"
+	REASON_INVALID_CHAOS_KILL_INTERVAL_SEC           = "invalid_chaos_kill_interval_sec"
+	REASON_INVALID_TEST_502_BAD_GATEWAY_OPTION       = "invalid_test_502_bad_gateway_option"
+	REASON_INVALID_TEST_DEAD_BACKENDS_OPTION         = "invalid_test_dead_backend_option"
+	REASON_INVALID_TERMINATE_ON_CHAOS_EXITING_OPTION = "invalid_terminate_on_chaos_exiting_option"
+	REASON_INVALID_CONFIG                            = "invalid_config"
 )
